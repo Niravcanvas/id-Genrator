@@ -427,7 +427,7 @@ For issues, questions, or suggestions:
 
 ---
 
-**Made with ❤️ for HACKOVERFLOW 4.0**
+**Made by Nirav for HACKOVERFLOW 4.0**
 
 ---
 
