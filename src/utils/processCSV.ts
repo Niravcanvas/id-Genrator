@@ -1,45 +1,73 @@
-import Papa from 'papaparse';
-import { Participant } from '@/types';
+import { IDCardData } from '@/types';
+import { generateQRCode } from './generateQR';
 
-export function parseCSV(file: File): Promise<Participant[]> {
-  return new Promise((resolve, reject) => {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        try {
-          const participants: Participant[] = results.data.map((row: any, index: number) => ({
-            name: row.name || '',
-            email: row.email || '',
-            role: row.role || '',
-            company: row.company || '',
-            phone: row.phone || '',
-            participantId: row.participantId || `PART-${String(index + 1).padStart(4, '0')}`,
-          }));
-          resolve(participants);
-        } catch (error) {
-          reject(error);
-        }
-      },
-      error: (error) => {
-        reject(error);
-      },
+/**
+ * Process CSV text and convert to ID card data
+ */
+export async function processCSV(csvText: string): Promise<IDCardData[]> {
+  const lines = csvText.trim().split('\n');
+  
+  if (lines.length < 2) {
+    throw new Error('CSV file is empty or invalid');
+  }
+
+  // Parse header
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  
+  // Validate required columns
+  const requiredColumns = ['name', 'email', 'role', 'company', 'phone'];
+  const missingColumns = requiredColumns.filter(col => !headers.includes(col));
+  
+  if (missingColumns.length > 0) {
+    throw new Error(`Missing required columns: ${missingColumns.join(', ')}`);
+  }
+
+  // Process data rows
+  const cards: IDCardData[] = [];
+  
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue; // Skip empty lines
+    
+    const values = line.split(',').map(v => v.trim());
+    
+    // Create participant object
+    const participant: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      participant[header] = values[index] || '';
     });
-  });
+
+    // Generate participant ID
+    const participantId = `PART-${String(i).padStart(4, '0')}`;
+
+    // Generate QR code data
+    const qrData = JSON.stringify({
+      name: participant.name,
+      email: participant.email,
+      role: participant.role,
+      company: participant.company,
+      phone: participant.phone,
+      id: participantId
+    });
+
+    const qrCodeDataURL = await generateQRCode(qrData);
+
+    // Add to cards array
+    cards.push({
+      name: participant.name,
+      email: participant.email,
+      role: participant.role,
+      company: participant.company,
+      phone: participant.phone,
+      participantId,
+      qrCodeDataURL
+    });
+  }
+
+  return cards;
 }
 
-export function downloadCSVTemplate() {
-  const template = `name,email,role,company,phone
-John Doe,john@example.com,Developer,TechCorp,+1234567890
-Jane Smith,jane@example.com,Designer,DesignCo,+0987654321`;
-
-  const blob = new Blob([template], { type: 'text/csv' });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'participants_template.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  window.URL.revokeObjectURL(url);
-}
+/**
+ * Alias for backward compatibility
+ */
+export const parseCSV = processCSV;

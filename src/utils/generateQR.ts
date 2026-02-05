@@ -1,29 +1,22 @@
 import QRCode from 'qrcode';
-import { Participant } from '@/types';
 
-export async function generateQRCode(data: Participant): Promise<string> {
+/**
+ * Generate QR code as data URL
+ */
+export async function generateQRCode(data: string): Promise<string> {
   try {
-    const qrData = JSON.stringify({
-      name: data.name,
-      email: data.email,
-      role: data.role,
-      company: data.company,
-      phone: data.phone,
-      participantId: data.participantId || `ID-${Date.now()}`,
-    });
-
-    const qrCodeDataURL = await QRCode.toDataURL(qrData, {
-      width: 200,
+    const qrCodeDataURL = await QRCode.toDataURL(data, {
+      width: 300,
       margin: 1,
       color: {
         dark: '#000000',
-        light: '#ffffff',
-      },
+        light: '#FFFFFF'
+      }
     });
-
     return qrCodeDataURL;
   } catch (error) {
     console.error('Error generating QR code:', error);
-    throw error;
+    // Return a placeholder image if QR generation fails
+    return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
   }
 }

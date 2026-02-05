@@ -421,8 +421,6 @@ Jane Smith,jane@example.com,Designer,DesignCo,+0987654321`;
           </div>
         </section>
 
-
-
         {/* CSV Format Section */}
         <section style={{
           borderTop: '1px solid rgba(255, 255, 255, 0.1)'

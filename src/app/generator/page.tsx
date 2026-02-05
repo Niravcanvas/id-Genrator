@@ -1,250 +1,572 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import { Participant, IDCardData, HackathonInfo } from '@/types';
-import { parseCSV, downloadCSVTemplate } from '@/utils/processCSV';
-import { generateQRCode } from '@/utils/generateQR';
+import { useState, useRef } from 'react';
+import Link from 'next/link';
 import IDCardTemplate from '@/components/IDCardTemplate';
-import TemplatePreview from '@/components/TemplatePreview';
+import { IDCardData, HackathonInfo } from '@/types';
+import { processCSV } from '@/utils/processCSV';
 import html2canvas from 'html2canvas';
 import JSZip from 'jszip';
+import { generateBulkVectorPDFs } from '@/utils/generatePDF';
 
-const GeneratorPage: React.FC = () => {
-  const [file, setFile] = useState<File | null>(null);
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [idCards, setIdCards] = useState<IDCardData[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
+export default function GeneratorPage() {
+  const [cards, setCards] = useState<IDCardData[]>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [downloadFormat, setDownloadFormat] = useState<'png' | 'pdf'>('png');
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const hackathonInfo: HackathonInfo = {
-    name: 'HackFest 2026',
-    date: 'February 15-16, 2026',
-    venue: 'Tech Hub Convention Center',
+    name: "HACKOVERFLOW 4.0",
+    date: "March 15-16, 2026",
+    venue: "Pillai HOC College, Rasayani"
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const uploadedFile = e.target.files?.[0];
-    if (!uploadedFile) return;
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    setFile(uploadedFile);
     try {
-      const parsedData = await parseCSV(uploadedFile);
-      setParticipants(parsedData);
-      alert(`✓ ${parsedData.length} participants loaded`);
+      const text = await file.text();
+      const processedCards = await processCSV(text);
+      setCards(processedCards);
+      alert(`Successfully loaded ${processedCards.length} participants!`);
     } catch (error) {
-      console.error('Error parsing CSV:', error);
-      alert('Error parsing CSV file. Please check the format.');
+      alert('Error processing CSV file. Please check the format.');
+      console.error(error);
     }
   };
 
-  const generateIDCards = async () => {
-    if (participants.length === 0) {
-      alert('Please upload a CSV file first');
+  const generatePNGCards = async () => {
+    if (cards.length === 0) {
+      alert('Please upload a CSV file first!');
       return;
     }
 
-    setIsProcessing(true);
+    setIsGenerating(true);
     setProgress(0);
 
     try {
-      const cards: IDCardData[] = [];
+      const zip = new JSZip();
 
-      for (let i = 0; i < participants.length; i++) {
-        const participant = participants[i];
-        const qrCodeDataURL = await generateQRCode(participant);
+      for (let i = 0; i < cards.length; i++) {
+        const cardElement = cardRefs.current[i];
+        if (!cardElement) continue;
 
-        cards.push({
-          ...participant,
-          qrCodeDataURL,
-        });
-
-        setProgress(Math.round(((i + 1) / participants.length) * 100));
-      }
-
-      setIdCards(cards);
-      alert(`✓ Generated ${cards.length} ID cards successfully!`);
-    } catch (error) {
-      console.error('Error generating ID cards:', error);
-      alert('Error generating ID cards');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const downloadAllCards = async () => {
-    if (idCards.length === 0) {
-      alert('Please generate ID cards first');
-      return;
-    }
-
-    setIsProcessing(true);
-    const zip = new JSZip();
-
-    try {
-      for (let i = 0; i < idCards.length; i++) {
-        const cardRef = cardRefs.current[i];
-        if (!cardRef) continue;
-
-        const canvas = await html2canvas(cardRef, {
+        const canvas = await html2canvas(cardElement, {
           scale: 2,
-          backgroundColor: '#ffffff',
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff'
         });
 
         const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((b) => resolve(b!), 'image/png');
+          canvas.toBlob((blob) => resolve(blob!), 'image/png');
         });
 
-        const fileName = `${idCards[i].name.replace(/\s+/g, '_')}_${idCards[i].participantId}.png`;
+        const fileName = `${cards[i].name.replace(/\s+/g, '_')}_${cards[i].participantId}.png`;
         zip.file(fileName, blob);
 
-        setProgress(Math.round(((i + 1) / idCards.length) * 100));
+        setProgress(Math.round(((i + 1) / cards.length) * 100));
       }
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const url = window.URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `ID_Cards_${Date.now()}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'id-cards.zip';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
-      alert('✓ All ID cards downloaded successfully!');
+      alert('ID cards generated successfully!');
     } catch (error) {
-      console.error('Error downloading cards:', error);
-      alert('Error downloading ID cards');
+      alert('Error generating cards. Please try again.');
+      console.error(error);
     } finally {
-      setIsProcessing(false);
+      setIsGenerating(false);
       setProgress(0);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-white text-black">
-      {/* Header */}
-      <header className="border-b-4 border-black p-6">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="text-4xl font-bold uppercase tracking-tight">ID Card Generator</h1>
-          <p className="mt-2 text-sm">Generate professional ID cards in seconds</p>
-        </div>
-      </header>
+  const generatePDFCards = async () => {
+    if (cards.length === 0) {
+      alert('Please upload a CSV file first!');
+      return;
+    }
 
-      <div className="max-w-7xl mx-auto p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    setIsGenerating(true);
+    setProgress(0);
+
+    try {
+      await generateBulkVectorPDFs(
+        cards,
+        hackathonInfo,
+        'id-cards',
+        (current, total) => {
+          setProgress(Math.round((current / total) * 100));
+        }
+      );
+
+      alert('Vector PDF cards generated successfully! (Crisp at any zoom level)');
+    } catch (error) {
+      alert('Error generating PDF cards. Please try again.');
+      console.error(error);
+    } finally {
+      setIsGenerating(false);
+      setProgress(0);
+    }
+  };
+
+  const handleGenerate = () => {
+    if (downloadFormat === 'pdf') {
+      generatePDFCards();
+    } else {
+      generatePNGCards();
+    }
+  };
+
+  const downloadSampleCSV = () => {
+    const sampleData = `name,email,role,company,phone
+John Doe,john@example.com,Developer,TechCorp,+1234567890
+Jane Smith,jane@example.com,Designer,DesignCo,+0987654321
+Mike Johnson,mike@example.com,Manager,StartupXYZ,+1122334455`;
+
+    const blob = new Blob([sampleData], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'sample-participants.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: '#000',
+      color: '#fff',
+      position: 'relative'
+    }}>
+      {/* Background Effects */}
+      <div style={{
+        position: 'fixed',
+        inset: '0',
+        opacity: '0.02',
+        pointerEvents: 'none',
+        backgroundImage: "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')"
+      }} />
+
+      {/* Navigation */}
+      <nav style={{
+        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        backdropFilter: 'blur(12px)',
+        background: 'rgba(0, 0, 0, 0.5)',
+        position: 'sticky',
+        top: '0',
+        zIndex: '50'
+      }}>
+        <div style={{
+          maxWidth: '80rem',
+          margin: '0 auto',
+          padding: '1.25rem 1.5rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <Link 
+            href="/" 
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              textDecoration: 'none',
+              color: '#fff'
+            }}
+          >
+            <div style={{
+              background: '#fff',
+              color: '#000',
+              padding: '0.625rem',
+              fontWeight: 'bold',
+              fontSize: '1.125rem'
+            }}>
+              ID
+            </div>
+            <span style={{
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              fontSize: '1.125rem'
+            }}>
+              ID Generator
+            </span>
+          </Link>
+
+          <Link
+            href="/"
+            style={{
+              padding: '0.75rem 1.5rem',
+              border: '1px solid rgba(255, 255, 255, 0.3)',
+              background: 'transparent',
+              color: '#fff',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              fontSize: '0.75rem',
+              textDecoration: 'none',
+              transition: 'all 0.3s'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+            }}
+          >
+            ← Back to Home
+          </Link>
+        </div>
+      </nav>
+
+      {/* Main Content */}
+      <div style={{
+        maxWidth: '80rem',
+        margin: '0 auto',
+        padding: '3rem 1.5rem'
+      }}>
+        {/* Page Header */}
+        <div style={{
+          marginBottom: '3rem',
+          textAlign: 'center'
+        }}>
+          <h1 style={{
+            fontSize: 'clamp(2.5rem, 8vw, 5rem)',
+            fontWeight: 'bold',
+            lineHeight: '1',
+            letterSpacing: '-0.02em',
+            marginBottom: '1rem'
+          }}>
+            GENERATOR
+          </h1>
+          <p style={{
+            fontSize: '1.125rem',
+            color: 'rgba(255, 255, 255, 0.7)',
+            maxWidth: '42rem',
+            margin: '0 auto'
+          }}>
+            Upload your CSV file and generate professional ID cards in bulk
+          </p>
+        </div>
+
+        {/* Two Column Layout */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '2rem',
+          marginBottom: '3rem'
+        }}>
           {/* Left Column - Controls */}
-          <div className="space-y-6">
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.5rem'
+          }}>
             {/* Template Preview */}
-            <div className="border-4 border-black p-6">
-              <TemplatePreview />
+            <div style={{
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              padding: '1.5rem',
+              background: 'rgba(0, 0, 0, 0.4)',
+              backdropFilter: 'blur(12px)'
+            }}>
+              <h2 style={{
+                fontSize: '1.25rem',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em',
+                marginBottom: '1rem'
+              }}>
+                Template Preview
+              </h2>
+              <div style={{
+                transform: 'scale(0.6)',
+                transformOrigin: 'top left',
+                marginBottom: '-120px'
+              }}>
+                <IDCardTemplate
+                  data={{
+                    name: 'Sample Name',
+                    email: 'sample@example.com',
+                    role: 'Participant',
+                    company: 'Company Name',
+                    phone: '+1234567890',
+                    participantId: 'SAMPLE-001',
+                    qrCodeDataURL: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+                  }}
+                  hackathonInfo={hackathonInfo}
+                />
+              </div>
             </div>
 
             {/* Upload Section */}
-            <div className="border-4 border-black p-6">
-              <h2 className="text-xl font-bold uppercase mb-4">Upload CSV</h2>
+            <div style={{
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              padding: '1.5rem',
+              background: 'rgba(0, 0, 0, 0.4)',
+              backdropFilter: 'blur(12px)'
+            }}>
+              <h2 style={{
+                fontSize: '1.25rem',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em',
+                marginBottom: '1rem'
+              }}>
+                Upload CSV
+              </h2>
               
-              <button
-                onClick={downloadCSVTemplate}
-                className="w-full mb-4 px-4 py-2 border-2 border-black hover:bg-black hover:text-white transition-colors font-medium uppercase text-sm"
+              <div style={{
+                border: '2px dashed rgba(255, 255, 255, 0.3)',
+                padding: '2rem',
+                textAlign: 'center',
+                marginBottom: '1rem',
+                cursor: 'pointer'
+              }}
+              onClick={() => document.getElementById('csv-upload')?.click()}
               >
-                ↓ Download CSV Template
-              </button>
-
-              <div className="border-2 border-dashed border-black p-8 text-center">
+                <p style={{
+                  fontSize: '0.875rem',
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  marginBottom: '0.5rem'
+                }}>
+                  Click to upload or drag and drop
+                </p>
+                <p style={{
+                  fontSize: '0.75rem',
+                  color: 'rgba(255, 255, 255, 0.5)'
+                }}>
+                  CSV files only
+                </p>
                 <input
+                  id="csv-upload"
                   type="file"
                   accept=".csv"
                   onChange={handleFileUpload}
-                  className="hidden"
-                  id="csv-upload"
+                  style={{ display: 'none' }}
                 />
-                <label
-                  htmlFor="csv-upload"
-                  className="cursor-pointer block"
-                >
-                  <div className="text-4xl mb-2">📄</div>
-                  <p className="font-semibold">Click to upload CSV</p>
-                  <p className="text-xs mt-1">or drag and drop</p>
-                </label>
               </div>
 
-              {file && (
-                <div className="mt-4 p-3 border-2 border-black bg-gray-50">
-                  <p className="text-sm">
-                    <span className="font-semibold">File:</span> {file.name}
-                  </p>
-                  <p className="text-sm">
-                    <span className="font-semibold">Participants:</span> {participants.length}
-                  </p>
-                </div>
+              <button
+                onClick={downloadSampleCSV}
+                style={{
+                  width: '100%',
+                  padding: '0.75rem',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  background: 'transparent',
+                  color: '#fff',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                }}
+              >
+                Download Sample CSV
+              </button>
+
+              {cards.length > 0 && (
+                <p style={{
+                  marginTop: '1rem',
+                  fontSize: '0.875rem',
+                  color: '#4ade80'
+                }}>
+                  ✓ {cards.length} participants loaded
+                </p>
               )}
             </div>
 
             {/* Generate Section */}
-            <div className="border-4 border-black p-6">
-              <h2 className="text-xl font-bold uppercase mb-4">Generate</h2>
-              
-              <button
-                onClick={generateIDCards}
-                disabled={participants.length === 0 || isProcessing}
-                className="w-full mb-3 px-4 py-3 bg-black text-white hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-bold uppercase"
-              >
-                {isProcessing ? 'Generating...' : '⚡ Generate ID Cards'}
-              </button>
+            <div style={{
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              padding: '1.5rem',
+              background: 'rgba(0, 0, 0, 0.4)',
+              backdropFilter: 'blur(12px)'
+            }}>
+              <h2 style={{
+                fontSize: '1.25rem',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em',
+                marginBottom: '1rem'
+              }}>
+                Generate Cards
+              </h2>
+
+              {/* Format Selection */}
+              <div style={{
+                marginBottom: '1rem'
+              }}>
+                <label style={{
+                  fontSize: '0.875rem',
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  marginBottom: '0.5rem',
+                  display: 'block'
+                }}>
+                  Download Format:
+                </label>
+                <div style={{
+                  display: 'flex',
+                  gap: '0.5rem'
+                }}>
+                  <button
+                    onClick={() => setDownloadFormat('png')}
+                    style={{
+                      flex: 1,
+                      padding: '0.75rem',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      background: downloadFormat === 'png' ? '#fff' : 'transparent',
+                      color: downloadFormat === 'png' ? '#000' : '#fff',
+                      fontWeight: 'bold',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.1em',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s'
+                    }}
+                  >
+                    PNG
+                  </button>
+                  <button
+                    onClick={() => setDownloadFormat('pdf')}
+                    style={{
+                      flex: 1,
+                      padding: '0.75rem',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      background: downloadFormat === 'pdf' ? '#fff' : 'transparent',
+                      color: downloadFormat === 'pdf' ? '#000' : '#fff',
+                      fontWeight: 'bold',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.1em',
+                      fontSize: '0.75rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s'
+                    }}
+                  >
+                    PDF
+                  </button>
+                </div>
+              </div>
 
               <button
-                onClick={downloadAllCards}
-                disabled={idCards.length === 0 || isProcessing}
-                className="w-full px-4 py-3 border-2 border-black hover:bg-black hover:text-white disabled:bg-gray-100 disabled:border-gray-300 disabled:cursor-not-allowed transition-colors font-bold uppercase"
+                onClick={handleGenerate}
+                disabled={isGenerating || cards.length === 0}
+                style={{
+                  width: '100%',
+                  padding: '1rem',
+                  background: cards.length === 0 || isGenerating ? 'rgba(255, 255, 255, 0.2)' : '#fff',
+                  color: cards.length === 0 || isGenerating ? 'rgba(255, 255, 255, 0.5)' : '#000',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  fontSize: '0.875rem',
+                  cursor: cards.length === 0 || isGenerating ? 'not-allowed' : 'pointer',
+                  border: 'none',
+                  transition: 'all 0.3s'
+                }}
               >
-                ↓ Download All ({idCards.length})
+                {isGenerating ? `Generating... ${progress}%` : `Generate ${downloadFormat.toUpperCase()} Cards`}
               </button>
 
-              {isProcessing && (
-                <div className="mt-4">
-                  <div className="w-full bg-gray-200 border-2 border-black h-8">
-                    <div
-                      className="bg-black h-full transition-all duration-300 flex items-center justify-center"
-                      style={{ width: `${progress}%` }}
-                    >
-                      <span className="text-white text-xs font-bold">{progress}%</span>
-                    </div>
-                  </div>
+              {isGenerating && (
+                <div style={{
+                  marginTop: '1rem',
+                  height: '4px',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '2px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    height: '100%',
+                    background: '#4ade80',
+                    width: `${progress}%`,
+                    transition: 'width 0.3s'
+                  }} />
                 </div>
               )}
             </div>
           </div>
 
           {/* Right Column - Generated Cards */}
-          <div className="border-4 border-black p-6">
-            <h2 className="text-xl font-bold uppercase mb-4">Generated Cards ({idCards.length})</h2>
-            
-            {idCards.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
-                <p className="text-sm">No cards generated yet</p>
-                <p className="text-xs mt-1">Upload CSV and click generate</p>
-              </div>
-            ) : (
-              <div className="space-y-4 max-h-[800px] overflow-y-auto">
-                {idCards.map((card, index) => (
-                  <div
-                    key={index}
-                    ref={(el) => {
-                      cardRefs.current[index] = el;
-                    }}
-                    className="transform scale-75 origin-top-left"
-                  >
-                    <IDCardTemplate data={card} hackathonInfo={hackathonInfo} />
-                  </div>
-                ))}
-              </div>
+          <div style={{
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            padding: '1.5rem',
+            background: 'rgba(0, 0, 0, 0.4)',
+            backdropFilter: 'blur(12px)',
+            minHeight: '400px'
+          }}>
+            <h2 style={{
+              fontSize: '1.25rem',
+              fontWeight: 'bold',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              marginBottom: '1.5rem'
+            }}>
+              Generated Cards ({cards.length})
+            </h2>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gap: '1rem',
+              maxHeight: '600px',
+              overflowY: 'auto'
+            }}>
+              {cards.map((card, index) => (
+                <div
+                  key={index}
+                  ref={(el) => {
+                    cardRefs.current[index] = el;
+                  }}
+                  style={{
+                    transform: 'scale(0.5)',
+                    transformOrigin: 'top left',
+                    width: '400px',
+                    height: '650px'
+                  }}
+                >
+                  <IDCardTemplate
+                    data={card}
+                    hackathonInfo={hackathonInfo}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {cards.length === 0 && (
+              <p style={{
+                textAlign: 'center',
+                color: 'rgba(255, 255, 255, 0.5)',
+                fontSize: '0.875rem',
+                marginTop: '2rem'
+              }}>
+                Upload a CSV file to see generated cards here
+              </p>
             )}
           </div>
         </div>
       </div>
     </div>
   );
-};
-
-export default GeneratorPage;
+}
